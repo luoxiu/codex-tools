@@ -4,6 +4,8 @@ use base64::Engine;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
+use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -33,7 +35,7 @@ const TRAY_MENU_OPEN_ID: &str = "tray_open_window";
 const TRAY_MENU_QUIT_ID: &str = "tray_quit";
 #[cfg(target_os = "macos")]
 const STATUS_BAR_ICON: tauri::image::Image<'_> =
-    tauri::include_image!("./icons/codex-tools-statusbar.png");
+    tauri::include_image!("./icons/codex-tools-statusbar-terminal.png");
 
 #[derive(Default)]
 struct AppState {
@@ -182,6 +184,52 @@ impl StoredAccount {
                 .unwrap_or(false),
         }
     }
+}
+
+fn sync_current_auth_account_on_startup(app: &AppHandle) -> Result<(), String> {
+    let auth_json = match read_current_codex_auth_optional()? {
+        Some(value) => value,
+        None => return Ok(()),
+    };
+
+    let extracted = match extract_auth(&auth_json) {
+        Ok(value) => value,
+        Err(err) => {
+            log::warn!("跳过启动自动导入当前账号: {err}");
+            return Ok(());
+        }
+    };
+
+    let mut store = load_store(app)?;
+    let already_exists = store
+        .accounts
+        .iter()
+        .any(|account| account.account_id == extracted.account_id);
+    if already_exists {
+        return Ok(());
+    }
+
+    let now = now_unix_seconds();
+    let label = extracted
+        .email
+        .clone()
+        .unwrap_or_else(|| format!("Codex {}", short_account(&extracted.account_id)));
+
+    let stored = StoredAccount {
+        id: Uuid::new_v4().to_string(),
+        label,
+        email: extracted.email,
+        account_id: extracted.account_id,
+        plan_type: extracted.plan_type,
+        auth_json,
+        added_at: now,
+        updated_at: now,
+        usage: None,
+        usage_error: None,
+    };
+    store.accounts.push(stored);
+    save_store(app, &store)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -364,8 +412,8 @@ async fn launch_codex_login(state: State<'_, AppState>) -> Result<(), String> {
         *backup = Some(current_auth);
     }
 
-    Command::new("codex")
-        .arg("login")
+    let mut cmd = new_codex_command()?;
+    cmd.arg("login")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -443,7 +491,7 @@ async fn switch_account_and_launch(
         });
     }
 
-    let mut cmd = Command::new("codex");
+    let mut cmd = new_codex_command()?;
     cmd.arg("app");
     if let Some(workspace) = workspace_path.as_deref() {
         cmd.arg(workspace);
@@ -847,6 +895,134 @@ fn truncate_for_error(value: &str, max_len: usize) -> String {
     }
 }
 
+fn new_codex_command() -> Result<Command, String> {
+    let codex_path = find_codex_cli_path().ok_or_else(|| {
+        "未找到 codex 可执行文件。请先安装 Codex CLI，或将其所在目录加入系统 PATH。".to_string()
+    })?;
+
+    let mut cmd = Command::new(&codex_path);
+
+    if let Some(parent) = codex_path.parent() {
+        let path_entries = if let Some(current_path) = env::var_os("PATH") {
+            std::iter::once(parent.to_path_buf())
+                .chain(env::split_paths(&current_path))
+                .collect::<Vec<_>>()
+        } else {
+            vec![parent.to_path_buf()]
+        };
+        let merged = env::join_paths(path_entries).map_err(|e| format!("设置 PATH 失败: {e}"))?;
+        cmd.env("PATH", merged);
+    }
+
+    Ok(cmd)
+}
+
+fn find_codex_cli_path() -> Option<PathBuf> {
+    let mut candidates = codex_cli_candidates();
+    append_nvm_codex_candidates(&mut candidates);
+
+    let mut seen = HashSet::new();
+    for candidate in candidates {
+        if !seen.insert(candidate.clone()) {
+            continue;
+        }
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn codex_cli_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(path_os) = env::var_os("PATH") {
+        for dir in env::split_paths(&path_os) {
+            push_codex_candidates_from_dir(&mut candidates, &dir);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        for dir in [
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/bin"),
+        ] {
+            push_codex_candidates_from_dir(&mut candidates, &dir);
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        for dir in [
+            home.join(".local").join("bin"),
+            home.join(".npm-global").join("bin"),
+            home.join(".volta").join("bin"),
+            home.join(".asdf").join("shims"),
+            home.join(".pnpm"),
+            home.join("Library").join("pnpm"),
+            home.join("bin"),
+        ] {
+            push_codex_candidates_from_dir(&mut candidates, &dir);
+        }
+    }
+
+    candidates
+}
+
+fn append_nvm_codex_candidates(candidates: &mut Vec<PathBuf>) {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let nvm_versions_dir = home.join(".nvm").join("versions").join("node");
+    let Ok(entries) = fs::read_dir(&nvm_versions_dir) else {
+        return;
+    };
+
+    let mut version_dirs = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    version_dirs.sort();
+    version_dirs.reverse();
+
+    for version_dir in version_dirs {
+        push_codex_candidates_from_dir(candidates, &version_dir.join("bin"));
+    }
+}
+
+fn push_codex_candidates_from_dir(candidates: &mut Vec<PathBuf>, dir: &Path) {
+    #[cfg(windows)]
+    let names = ["codex.exe", "codex.cmd", "codex.bat"];
+    #[cfg(not(windows))]
+    let names = ["codex"];
+
+    for name in names {
+        candidates.push(dir.join(name));
+    }
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 fn find_codex_app_path() -> Option<PathBuf> {
     let mut candidates = vec![
         PathBuf::from("/Applications/Codex.app"),
@@ -953,10 +1129,16 @@ fn build_macos_tray_title(accounts: &[AccountSummary]) -> String {
                 .as_ref()
                 .and_then(|usage| usage.five_hour.as_ref()),
         ));
-        return format!("Codex {five_hour_remaining}");
+        let one_week_remaining = format_percent(remaining_percent(
+            current
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.one_week.as_ref()),
+        ));
+        return format!("5h {five_hour_remaining} / 1w {one_week_remaining}");
     }
 
-    "Codex".to_string()
+    "5h -- / 1w --".to_string()
 }
 
 #[cfg(target_os = "macos")]
@@ -1214,6 +1396,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            sync_current_auth_account_on_startup(app.handle())?;
             setup_macos_status_bar(app.handle())?;
             Ok(())
         })
