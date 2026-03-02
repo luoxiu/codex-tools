@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::error::Error as StdError;
 
 use crate::models::CreditSnapshot;
 use crate::models::UsageSnapshot;
@@ -9,6 +10,7 @@ use crate::utils::truncate_for_error;
 const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com";
 const CODEX_USAGE_PATH: &str = "/api/codex/usage";
 const WHAM_USAGE_PATH: &str = "/wham/usage";
+const BACKEND_API_PREFIX: &str = "/backend-api";
 
 #[derive(Debug, Deserialize)]
 struct UsageApiResponse {
@@ -51,6 +53,7 @@ pub(crate) async fn fetch_usage_snapshot(
 
     let client = reqwest::Client::builder()
         .user_agent("codex-tools/0.1")
+        .timeout(std::time::Duration::from_secs(18))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
@@ -60,12 +63,13 @@ pub(crate) async fn fetch_usage_snapshot(
             .get(&usage_url)
             .header("Authorization", format!("Bearer {access_token}"))
             .header("ChatGPT-Account-Id", account_id)
+            .header("Accept", "application/json")
             .send()
             .await
         {
             Ok(response) => response,
             Err(err) => {
-                errors.push(format!("{usage_url} -> {err}"));
+                errors.push(format!("{usage_url} -> {}", format_reqwest_error(&err)));
                 continue;
             }
         };
@@ -115,16 +119,19 @@ fn resolve_usage_urls() -> Vec<String> {
     let normalized = base_url.trim_end_matches('/');
     let mut candidates = Vec::new();
 
-    if let Some(origin) = normalized.strip_suffix("/backend-api") {
-        candidates.push(format!("{origin}{CODEX_USAGE_PATH}"));
+    if let Some(origin) = normalized.strip_suffix(BACKEND_API_PREFIX) {
+        // 优先 backend-api/wham/usage（兼容性最好）
         candidates.push(format!("{normalized}{WHAM_USAGE_PATH}"));
+        candidates.push(format!("{origin}{BACKEND_API_PREFIX}{WHAM_USAGE_PATH}"));
+        candidates.push(format!("{origin}{CODEX_USAGE_PATH}"));
     } else {
+        candidates.push(format!("{normalized}{BACKEND_API_PREFIX}{WHAM_USAGE_PATH}"));
+        candidates.push(format!("{normalized}{WHAM_USAGE_PATH}"));
         candidates.push(format!("{normalized}{CODEX_USAGE_PATH}"));
-        candidates.push(format!("{normalized}/backend-api{WHAM_USAGE_PATH}"));
     }
 
-    candidates.push(format!("https://chatgpt.com{CODEX_USAGE_PATH}"));
     candidates.push("https://chatgpt.com/backend-api/wham/usage".to_string());
+    candidates.push(format!("https://chatgpt.com{CODEX_USAGE_PATH}"));
 
     let mut deduped = Vec::new();
     for url in candidates {
@@ -133,6 +140,19 @@ fn resolve_usage_urls() -> Vec<String> {
         }
     }
     deduped
+}
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = err.source();
+    while let Some(next) = source {
+        let text = next.to_string();
+        if !parts.iter().any(|item| item == &text) {
+            parts.push(text);
+        }
+        source = next.source();
+    }
+    parts.join(" -> ")
 }
 
 fn read_chatgpt_base_url_from_config() -> Option<String> {

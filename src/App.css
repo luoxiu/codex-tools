@@ -53,6 +53,23 @@
   --glow-hot: rgba(255, 145, 56, 0.14);
   --glow-cool: rgba(47, 210, 200, 0.12);
   --body-bg: #eef4ff;
+  --account-card-bg-start: rgba(255, 255, 255, 0.97);
+  --account-card-bg-end: rgba(255, 255, 255, 0.9);
+  --account-card-shadow:
+    0 8px 18px rgba(32, 51, 80, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.9);
+  --account-card-hover-shadow:
+    0 14px 28px rgba(24, 42, 68, 0.16),
+    0 0 0 1px var(--tone-a),
+    inset 0 1px rgba(255, 255, 255, 0.84);
+  --account-overlay-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.2), rgba(218, 231, 255, 0.14));
+  --account-overlay-bg-touch: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(217, 230, 255, 0.12)
+  );
+  --account-launch-color: rgba(255, 255, 255, 0.94);
+  --account-launch-shadow: drop-shadow(0 8px 20px rgba(9, 18, 34, 0.3));
   --ok: #38d49f;
   --danger: #f26a77;
 }
@@ -112,6 +129,23 @@
   --glow-hot: rgba(255, 145, 56, 0.24);
   --glow-cool: rgba(47, 210, 200, 0.18);
   --body-bg: #0a1220;
+  --account-card-bg-start: rgba(13, 24, 41, 0.9);
+  --account-card-bg-end: rgba(8, 17, 32, 0.84);
+  --account-card-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.42),
+    inset 0 1px rgba(255, 255, 255, 0.08);
+  --account-card-hover-shadow:
+    0 16px 30px rgba(0, 0, 0, 0.52),
+    0 0 0 1px var(--tone-a),
+    inset 0 1px rgba(255, 255, 255, 0.12);
+  --account-overlay-bg: linear-gradient(160deg, rgba(10, 20, 36, 0.44), rgba(6, 13, 25, 0.72));
+  --account-overlay-bg-touch: linear-gradient(
+    160deg,
+    rgba(12, 24, 42, 0.38),
+    rgba(7, 14, 27, 0.62)
+  );
+  --account-launch-color: rgba(236, 244, 255, 0.95);
+  --account-launch-shadow: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55));
 }
 
 * {
@@ -148,7 +182,7 @@
   position: relative;
   z-index: 1;
   width: min(1220px, 100%);
-  margin: 0 auto;
+  margin: calc(env(safe-area-inset-top, 0px) + 14px) auto 0;
   border: 1px solid var(--line);
   border-radius: 24px;
   padding: 26px;
@@ -774,14 +808,20 @@ button.danger {
 }
 
 .accountCard {
-  border: 1px solid rgba(73, 102, 141, 0.18);
+  --tone-a: rgba(129, 158, 201, 0.62);
+  --tone-b: rgba(181, 202, 235, 0.58);
+  --tone-glow: rgba(123, 150, 191, 0.16);
+  border: 1px solid transparent;
   border-radius: 16px;
   padding: 16px 14px 14px;
-  background: linear-gradient(150deg, var(--card), rgba(255, 255, 255, 0.42));
-  box-shadow: var(--card-shadow);
+  background:
+    linear-gradient(150deg, var(--account-card-bg-start), var(--account-card-bg-end)) padding-box,
+    linear-gradient(130deg, var(--tone-a), var(--tone-b)) border-box;
+  box-shadow: var(--account-card-shadow);
   animation: riseIn 320ms ease both;
   position: relative;
   overflow: hidden;
+  transition: transform 220ms ease, box-shadow 220ms ease, filter 220ms ease;
 }
 
 .accountCard::before {
@@ -791,59 +831,123 @@ button.danger {
   top: 0;
   width: 100%;
   height: 2px;
-  background: var(--card-shine);
+  background: linear-gradient(90deg, var(--tone-a), var(--tone-b));
+}
+
+.accountCard::after {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  pointer-events: none;
+  background: radial-gradient(circle at 12% 8%, var(--tone-glow), transparent 56%);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.accountCard:hover,
+.accountCard:focus-within,
+.accountCard.isSwitching {
+  transform: translateY(-3px);
+  box-shadow: var(--account-card-hover-shadow);
+}
+
+.accountCard:hover::after,
+.accountCard:focus-within::after,
+.accountCard.isSwitching::after {
+  opacity: 1;
 }
 
 .accountCard.tone-team {
-  border-color: rgba(113, 230, 229, 0.56);
-}
-
-.accountCard.tone-team::before {
-  background: linear-gradient(90deg, rgba(71, 218, 204, 0.92), rgba(130, 245, 242, 0.8));
+  --tone-a: rgba(49, 206, 192, 0.84);
+  --tone-b: rgba(138, 240, 235, 0.78);
+  --tone-glow: rgba(42, 212, 196, 0.2);
+  --stamp-plan-color: #0f6f68;
+  --stamp-plan-border: rgba(56, 190, 178, 0.66);
+  --stamp-plan-bg: rgba(118, 231, 221, 0.26);
 }
 
 .accountCard.tone-pro {
-  border-color: rgba(255, 162, 104, 0.58);
-}
-
-.accountCard.tone-pro::before {
-  background: linear-gradient(90deg, rgba(255, 130, 54, 0.95), rgba(255, 190, 138, 0.84));
+  --tone-a: rgba(255, 134, 66, 0.88);
+  --tone-b: rgba(255, 198, 144, 0.78);
+  --tone-glow: rgba(255, 140, 52, 0.21);
+  --stamp-plan-color: #7d3f13;
+  --stamp-plan-border: rgba(226, 131, 60, 0.64);
+  --stamp-plan-bg: rgba(255, 164, 95, 0.28);
 }
 
 .accountCard.tone-plus {
-  border-color: rgba(168, 132, 255, 0.56);
-}
-
-.accountCard.tone-plus::before {
-  background: linear-gradient(90deg, rgba(154, 132, 255, 0.92), rgba(212, 155, 255, 0.82));
+  --tone-a: rgba(160, 128, 255, 0.86);
+  --tone-b: rgba(216, 170, 255, 0.78);
+  --tone-glow: rgba(172, 140, 255, 0.2);
+  --stamp-plan-color: #5f4294;
+  --stamp-plan-border: rgba(158, 122, 242, 0.68);
+  --stamp-plan-bg: rgba(191, 151, 255, 0.24);
 }
 
 .accountCard.tone-enterprise {
-  border-color: rgba(255, 220, 131, 0.62);
-}
-
-.accountCard.tone-enterprise::before {
-  background: linear-gradient(90deg, rgba(255, 219, 128, 0.94), rgba(255, 240, 190, 0.84));
+  --tone-a: rgba(255, 210, 116, 0.86);
+  --tone-b: rgba(255, 238, 176, 0.76);
+  --tone-glow: rgba(255, 222, 146, 0.2);
 }
 
 .accountCard.tone-business {
-  border-color: rgba(136, 188, 255, 0.58);
-}
-
-.accountCard.tone-business::before {
-  background: linear-gradient(90deg, rgba(122, 186, 255, 0.93), rgba(171, 215, 255, 0.8));
+  --tone-a: rgba(118, 184, 255, 0.84);
+  --tone-b: rgba(168, 217, 255, 0.76);
+  --tone-glow: rgba(131, 199, 255, 0.2);
 }
 
 .accountCard.tone-free {
-  border-color: rgba(168, 173, 193, 0.52);
-}
-
-.accountCard.tone-free::before {
-  background: linear-gradient(90deg, rgba(178, 183, 202, 0.85), rgba(208, 213, 227, 0.72));
+  --tone-a: rgba(166, 172, 192, 0.78);
+  --tone-b: rgba(209, 214, 227, 0.72);
+  --tone-glow: rgba(165, 174, 196, 0.18);
+  --stamp-plan-color: #4f5f7c;
+  --stamp-plan-border: rgba(135, 147, 174, 0.62);
+  --stamp-plan-bg: rgba(187, 197, 219, 0.26);
 }
 
 .accountCard.tone-unknown {
-  border-color: rgba(178, 183, 202, 0.52);
+  --tone-a: rgba(178, 183, 202, 0.72);
+  --tone-b: rgba(214, 218, 230, 0.66);
+  --tone-glow: rgba(178, 186, 205, 0.18);
+  --stamp-plan-color: #5b6582;
+  --stamp-plan-border: rgba(154, 165, 191, 0.58);
+  --stamp-plan-bg: rgba(196, 205, 223, 0.24);
+}
+
+:root[data-theme="dark"] .accountCard.tone-team {
+  --tone-a: rgba(73, 224, 209, 0.9);
+  --tone-b: rgba(35, 163, 150, 0.72);
+  --tone-glow: rgba(62, 223, 207, 0.26);
+  --stamp-plan-color: #c5fff8;
+  --stamp-plan-border: rgba(89, 226, 212, 0.66);
+  --stamp-plan-bg: rgba(55, 193, 178, 0.24);
+}
+
+:root[data-theme="dark"] .accountCard.tone-pro {
+  --tone-a: rgba(255, 152, 89, 0.92);
+  --tone-b: rgba(214, 107, 40, 0.74);
+  --tone-glow: rgba(255, 156, 97, 0.28);
+  --stamp-plan-color: #ffe0c7;
+  --stamp-plan-border: rgba(255, 170, 115, 0.68);
+  --stamp-plan-bg: rgba(219, 118, 54, 0.26);
+}
+
+:root[data-theme="dark"] .accountCard.tone-plus {
+  --tone-a: rgba(184, 145, 255, 0.92);
+  --tone-b: rgba(124, 94, 214, 0.76);
+  --tone-glow: rgba(186, 151, 255, 0.26);
+  --stamp-plan-color: #f0e0ff;
+  --stamp-plan-border: rgba(181, 146, 255, 0.7);
+  --stamp-plan-bg: rgba(130, 95, 219, 0.26);
+}
+
+:root[data-theme="dark"] .accountCard.tone-free {
+  --tone-a: rgba(176, 188, 214, 0.84);
+  --tone-b: rgba(126, 139, 170, 0.72);
+  --tone-glow: rgba(184, 197, 225, 0.22);
+  --stamp-plan-color: #e4ebff;
+  --stamp-plan-border: rgba(168, 182, 220, 0.64);
+  --stamp-plan-bg: rgba(120, 133, 168, 0.26);
 }
 
 .stamps {
@@ -966,24 +1070,56 @@ button.danger {
   word-break: break-word;
 }
 
-.cardActions {
-  margin-top: 14px;
-  display: block;
+.cardHoverOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--account-overlay-bg);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
 }
 
-.cardActions button {
-  width: 100%;
+.accountCard:hover .cardHoverOverlay,
+.accountCard:focus-within .cardHoverOverlay,
+.accountCard.isSwitching .cardHoverOverlay {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-.cardPrimaryAction {
-  border-color: rgba(226, 136, 53, 0.56);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.48);
+.launchOverlayIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  cursor: pointer;
+  line-height: 0;
+  outline: none;
+  color: var(--account-launch-color);
+  filter: var(--account-launch-shadow);
+  transition: transform 160ms ease, opacity 160ms ease;
 }
 
-.cardDangerAction {
-  border-color: rgba(214, 126, 137, 0.46);
-  background: rgba(242, 106, 119, 0.06);
-  color: var(--error-text);
+.launchOverlayIcon .iconGlyph {
+  width: 54px;
+  height: 54px;
+  stroke-width: 1.8;
+}
+
+.launchOverlayIcon:hover,
+.launchOverlayIcon:focus-visible {
+  transform: scale(1.06);
+}
+
+.launchOverlayIcon.isDisabled {
+  opacity: 0.85;
+  cursor: wait;
+  pointer-events: none;
 }
 
 .cardDeleteIcon {
@@ -994,7 +1130,7 @@ button.danger {
   height: 34px;
   border-radius: 10px;
   padding: 0;
-  z-index: 2;
+  z-index: 6;
   border-color: rgba(214, 126, 137, 0.42);
   background: rgba(242, 106, 119, 0.06);
   color: var(--error-text);
@@ -1008,6 +1144,14 @@ button.danger {
 .cardDeleteIcon .iconGlyph {
   width: 16px;
   height: 16px;
+}
+
+@media (hover: none) {
+  .cardHoverOverlay {
+    opacity: 1;
+    pointer-events: auto;
+    background: var(--account-overlay-bg-touch);
+  }
 }
 
 @keyframes riseIn {
@@ -1048,6 +1192,7 @@ button.danger {
   }
 
   .panel {
+    margin-top: calc(env(safe-area-inset-top, 0px) + 8px);
     padding: 16px;
     border-radius: 16px;
   }

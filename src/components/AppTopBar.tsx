@@ -59,7 +59,6 @@ export function AppTopBar({
   return (
     <header className="topbar">
       <div>
-        <p className="kicker">Codex Multi Account</p>
         <div className="brandLine">
           <img className="appLogo" src="/codex-tools.png" alt="Codex Tools logo" />
           <h1>Codex Tools</h1>

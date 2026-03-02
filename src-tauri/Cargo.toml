@@ -24,7 +24,7 @@ serde_json = "1.0"
 tauri-plugin-log = "2"
 tauri = { version = "2.10.0", features = ["tray-icon"] }
 tokio = { version = "1", features = ["sync", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", features = ["json", "gzip"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 base64 = "0.22"

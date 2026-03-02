@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import type { AccountSummary } from "../types/app";
 import {
   formatPlan,
@@ -13,16 +14,36 @@ type AccountCardProps = {
   account: AccountSummary;
   isSwitching: boolean;
   isDeletePending: boolean;
-  switchActionLabel: string;
   onSwitch: (account: AccountSummary) => void;
   onDelete: (account: AccountSummary) => void;
 };
+
+function LaunchIcon({ spinning }: { spinning: boolean }) {
+  if (spinning) {
+    return (
+      <svg
+        className="iconGlyph isSpinning"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+        <path d="M21 3v6h-6" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="iconGlyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M7 5v14l11-7z" />
+    </svg>
+  );
+}
 
 export function AccountCard({
   account,
   isSwitching,
   isDeletePending,
-  switchActionLabel,
   onSwitch,
   onDelete,
 }: AccountCardProps) {
@@ -32,9 +53,26 @@ export function AccountCard({
   const normalizedPlan = account.planType || usage?.planType;
   const planLabel = formatPlan(normalizedPlan);
   const tone = planTone(normalizedPlan);
+  const launchLabel = isSwitching ? "启动中" : "切换并启动";
+
+  const handleLaunch = () => {
+    if (isSwitching) return;
+    onSwitch(account);
+  };
+
+  const handleLaunchKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleLaunch();
+    }
+  };
 
   return (
-    <article className={`accountCard tone-${tone} ${account.isCurrent ? "isCurrent" : ""}`}>
+    <article
+      className={`accountCard tone-${tone} ${account.isCurrent ? "isCurrent" : ""} ${
+        isSwitching ? "isSwitching" : ""
+      }`}
+    >
       <div className="stamps">
         <span className="stamp stampPlan">{planLabel}</span>
         {account.isCurrent && <span className="stamp stampCurrent">当前</span>}
@@ -95,14 +133,19 @@ export function AccountCard({
 
       {account.usageError && <p className="errorText">{account.usageError}</p>}
 
-      <div className="cardActions">
-        <button
-          className="primary cardPrimaryAction"
-          onClick={() => onSwitch(account)}
-          disabled={isSwitching}
+      <div className="cardHoverOverlay">
+        <span
+          className={`launchOverlayIcon ${isSwitching ? "isDisabled" : ""}`}
+          role="button"
+          tabIndex={isSwitching ? -1 : 0}
+          onClick={handleLaunch}
+          onKeyDown={handleLaunchKeyDown}
+          aria-label={launchLabel}
+          aria-disabled={isSwitching}
+          title={isSwitching ? "启动中..." : "切换并启动"}
         >
-          {isSwitching ? "切换中..." : switchActionLabel}
-        </button>
+          <LaunchIcon spinning={isSwitching} />
+        </span>
       </div>
     </article>
   );
