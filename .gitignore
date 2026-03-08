@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 push.sh
+
+release/
+debug/

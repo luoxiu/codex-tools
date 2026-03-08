@@ -3,9 +3,12 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
-use tauri::AppHandle;
-use tauri::Manager;
 use uuid::Uuid;
+
+#[cfg(feature = "desktop")]
+use tauri::AppHandle;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 use crate::auth::extract_auth;
 use crate::auth::read_current_codex_auth_optional;
@@ -15,16 +18,19 @@ use crate::utils::now_unix_seconds;
 use crate::utils::set_private_permissions;
 use crate::utils::short_account;
 
+#[cfg(feature = "desktop")]
 pub(crate) fn load_store(app: &AppHandle) -> Result<AccountsStore, String> {
     load_store_from_path(&account_store_path(app)?)
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) fn save_store(app: &AppHandle, store: &AccountsStore) -> Result<(), String> {
     save_store_to_path(&account_store_path(app)?, store)
 }
 
 /// 启动时自动同步当前登录账号：
 /// 若本机已有 `~/.codex/auth.json` 且账号不在列表中，则自动写入存储。
+#[cfg(feature = "desktop")]
 pub(crate) fn sync_current_auth_account_on_startup(app: &AppHandle) -> Result<(), String> {
     sync_current_auth_account_on_startup_in_path(&account_store_path(app)?)
 }
@@ -135,6 +141,7 @@ pub(crate) fn sync_current_auth_account_on_startup_in_path(path: &Path) -> Resul
     Ok(())
 }
 
+#[cfg(feature = "desktop")]
 fn account_store_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()

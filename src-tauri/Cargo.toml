@@ -9,6 +9,10 @@ edition = "2021"
 rust-version = "1.77.2"
 default-run = "app"
 
+[features]
+default = ["desktop"]
+desktop = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]

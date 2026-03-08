@@ -858,6 +858,84 @@ button.danger {
   border-color: rgba(47, 210, 200, 0.42);
 }
 
+.taskProgressToast {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 172px);
+  right: 24px;
+  z-index: 46;
+  width: min(420px, calc(100vw - 40px));
+  display: grid;
+  gap: 12px;
+  padding: 14px 15px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, var(--brand) 26%);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card) 84%, white 16%),
+      color-mix(in srgb, var(--brand-soft) 34%, white 66%)
+    );
+  backdrop-filter: blur(8px);
+  box-shadow: 0 16px 34px rgba(18, 36, 62, 0.2);
+  animation: riseIn 180ms ease both;
+}
+
+.taskProgressHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.taskProgressHeader strong {
+  font: 700 0.94rem/1.3 "IBM Plex Sans", sans-serif;
+  color: color-mix(in srgb, var(--ink) 94%, white 6%);
+}
+
+.taskProgressHeader span {
+  font: 700 0.82rem/1 "IBM Plex Mono", monospace;
+  color: color-mix(in srgb, var(--brand-strong) 82%, white 18%);
+}
+
+.taskProgressTrack {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 76%, white 24%);
+}
+
+.taskProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--brand) 88%, white 12%),
+    color-mix(in srgb, var(--brand-strong) 80%, white 20%)
+  );
+  transition: width 220ms ease;
+}
+
+.taskProgressBody {
+  display: grid;
+  gap: 6px;
+}
+
+.taskProgressStage {
+  margin: 0;
+  font: 700 0.82rem/1.35 "IBM Plex Sans", sans-serif;
+  color: color-mix(in srgb, var(--ink) 88%, white 12%);
+}
+
+.taskProgressDetail {
+  display: block;
+  margin: 0;
+  font: 500 0.76rem/1.45 "IBM Plex Mono", monospace;
+  color: var(--subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .viewStage {
   margin-top: 16px;
   min-height: 460px;

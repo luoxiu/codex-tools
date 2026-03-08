@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rfd::FileDialog;
+use serde::Serialize;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 use crate::models::AccountsStore;
@@ -16,6 +18,17 @@ use crate::store::account_store_path_from_data_dir;
 use crate::utils::now_unix_seconds;
 
 const REMOTE_BINARY_NAME: &str = "codex-tools-proxyd";
+const REMOTE_DEPLOY_PROGRESS_EVENT: &str = "remote-deploy-progress";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteDeployProgressEvent {
+    server_id: String,
+    label: String,
+    stage: String,
+    progress: u8,
+    detail: Option<String>,
+}
 
 pub(crate) async fn get_remote_proxy_status_internal(
     server: RemoteServerConfig,
@@ -87,14 +100,28 @@ pub(crate) async fn install_sshpass_internal() -> Result<(), String> {
 
 fn deploy_remote_proxy_sync(app: &AppHandle, server: RemoteServerConfig) -> Result<RemoteProxyStatus, String> {
     let server = validate_remote_server(&server)?;
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "validating",
+        6,
+        Some(format!("{}@{}", server.ssh_user, server.host)),
+    );
     ensure_ssh_tools_available_for(&server)?;
 
-    let built_binary = build_linux_binary_for_server(&server)?;
+    let built_binary = build_linux_binary_for_server(app, &server)?;
     let accounts_json = local_accounts_store_json(app)?;
     let service_name = remote_systemd_service_name(&server);
     let service_content = render_systemd_unit(&server, &service_name);
 
     let temp_dir = env::temp_dir().join(format!("codex-tools-remote-{}", now_unix_seconds()));
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "preparingFiles",
+        52,
+        Some(temp_dir.display().to_string()),
+    );
     fs::create_dir_all(&temp_dir)
         .map_err(|error| format!("创建远程部署临时目录失败 {}: {error}", temp_dir.display()))?;
 
@@ -114,23 +141,58 @@ fn deploy_remote_proxy_sync(app: &AppHandle, server: RemoteServerConfig) -> Resu
         now_unix_seconds()
     );
 
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "preparingFiles",
+        58,
+        Some(format!("mkdir -p {stage_dir}")),
+    );
     run_ssh(&server, &format!("mkdir -p {}", shell_quote(&stage_dir)))?;
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "uploadingBinary",
+        64,
+        Some(format!("scp {}", binary_path.display())),
+    );
     run_scp(
         &server,
         &binary_path,
         &format!("{stage_dir}/{REMOTE_BINARY_NAME}"),
     )?;
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "uploadingAccounts",
+        72,
+        Some(format!("scp {}", accounts_path.display())),
+    );
     run_scp(
         &server,
         &accounts_path,
         &format!("{stage_dir}/accounts.json"),
     )?;
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "uploadingService",
+        80,
+        Some(format!("scp {service_name}")),
+    );
     run_scp(
         &server,
         &service_path,
         &format!("{stage_dir}/{service_name}"),
     )?;
 
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "installingService",
+        90,
+        Some("systemctl daemon-reload && enable/start".to_string()),
+    );
     run_root_ssh(
         &server,
         &format!(
@@ -155,6 +217,13 @@ if systemctl is-active --quiet \"$UNIT_NAME\"; then systemctl restart \"$UNIT_NA
     let _ = fs::remove_file(&service_path);
     let _ = fs::remove_dir_all(&temp_dir);
 
+    emit_remote_deploy_progress(
+        app,
+        &server,
+        "verifying",
+        96,
+        Some(service_name.clone()),
+    );
     get_remote_proxy_status_sync(&server)
 }
 
@@ -322,10 +391,20 @@ fn validate_remote_server(server: &RemoteServerConfig) -> Result<RemoteServerCon
     Ok(normalized)
 }
 
-fn build_linux_binary_for_server(server: &RemoteServerConfig) -> Result<PathBuf, String> {
+fn build_linux_binary_for_server(app: &AppHandle, server: &RemoteServerConfig) -> Result<PathBuf, String> {
     ensure_command_available("cargo", "未检测到 cargo 命令，请先安装 Rust 工具链。")?;
+    emit_remote_deploy_progress(
+        app,
+        server,
+        "detectingPlatform",
+        12,
+        Some("uname -s && uname -m".to_string()),
+    );
     let platform = detect_remote_platform(server)?;
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest_dir = workspace_manifest_dir.join("proxyd");
+    let manifest_path = manifest_dir.join("Cargo.toml");
+    let target_dir = proxyd_build_target_dir()?;
     let output_targets = [platform.primary_target, platform.fallback_target];
     let mut attempts = Vec::new();
     let mut cross_available = command_exists("cross");
@@ -333,28 +412,38 @@ fn build_linux_binary_for_server(server: &RemoteServerConfig) -> Result<PathBuf,
     let mut zig_available = command_exists("zig");
 
     if !cfg!(target_os = "linux") && !cross_available && !(zigbuild_available && zig_available) {
-        ensure_linux_build_dependencies_available()?;
+        ensure_linux_build_dependencies_available(app, server)?;
         cross_available = command_exists("cross");
         zigbuild_available = cargo_subcommand_available("zigbuild");
         zig_available = command_exists("zig");
     }
 
     for target in output_targets {
-        let binary_path = manifest_dir
-            .join("target")
+        let binary_path = target_dir
             .join(target)
             .join("release")
             .join(REMOTE_BINARY_NAME);
 
         if cross_available {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "buildingBinary",
+                24,
+                Some(format!(
+                    "cross build --manifest-path {} --release --target {target}",
+                    manifest_path.display()
+                )),
+            );
             let mut command = Command::new("cross");
             command
                 .current_dir(&manifest_dir)
+                .env("CARGO_TARGET_DIR", &target_dir)
                 .args([
                     "build",
+                    "--manifest-path",
+                    manifest_path.to_string_lossy().as_ref(),
                     "--release",
-                    "--bin",
-                    REMOTE_BINARY_NAME,
                     "--target",
                     target,
                 ]);
@@ -366,14 +455,25 @@ fn build_linux_binary_for_server(server: &RemoteServerConfig) -> Result<PathBuf,
         }
 
         if zigbuild_available && zig_available {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "buildingBinary",
+                28,
+                Some(format!(
+                    "cargo zigbuild --manifest-path {} --release --target {target}",
+                    manifest_path.display()
+                )),
+            );
             let mut command = Command::new("cargo");
             command
                 .current_dir(&manifest_dir)
+                .env("CARGO_TARGET_DIR", &target_dir)
                 .args([
                     "zigbuild",
+                    "--manifest-path",
+                    manifest_path.to_string_lossy().as_ref(),
                     "--release",
-                    "--bin",
-                    REMOTE_BINARY_NAME,
                     "--target",
                     target,
                 ]);
@@ -384,15 +484,33 @@ fn build_linux_binary_for_server(server: &RemoteServerConfig) -> Result<PathBuf,
             }
         }
 
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            30,
+            Some(format!("rustup target add {target}")),
+        );
         let _ = ensure_rust_target(target);
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "buildingBinary",
+            34,
+            Some(format!(
+                "cargo build --manifest-path {} --release --target {target}",
+                manifest_path.display()
+            )),
+        );
         let mut command = Command::new("cargo");
         command
             .current_dir(&manifest_dir)
+            .env("CARGO_TARGET_DIR", &target_dir)
             .args([
                 "build",
+                "--manifest-path",
+                manifest_path.to_string_lossy().as_ref(),
                 "--release",
-                "--bin",
-                REMOTE_BINARY_NAME,
                 "--target",
                 target,
             ]);
@@ -411,6 +529,38 @@ fn build_linux_binary_for_server(server: &RemoteServerConfig) -> Result<PathBuf,
             format!(" 详情: {}", attempts.join(" | "))
         }
     ))
+}
+
+fn proxyd_build_target_dir() -> Result<PathBuf, String> {
+    let base = dirs::cache_dir().unwrap_or_else(env::temp_dir);
+    let target_dir = base.join("codex-tools").join("proxyd-target");
+    fs::create_dir_all(&target_dir)
+        .map_err(|error| format!("创建 proxyd 构建缓存目录失败 {}: {error}", target_dir.display()))?;
+    Ok(target_dir)
+}
+
+fn emit_remote_deploy_progress(
+    app: &AppHandle,
+    server: &RemoteServerConfig,
+    stage: &str,
+    progress: u8,
+    detail: Option<String>,
+) {
+    let label = if server.label.trim().is_empty() {
+        server.host.clone()
+    } else {
+        server.label.clone()
+    };
+    let _ = app.emit(
+        REMOTE_DEPLOY_PROGRESS_EVENT,
+        RemoteDeployProgressEvent {
+            server_id: server.id.clone(),
+            label,
+            stage: stage.to_string(),
+            progress,
+            detail,
+        },
+    );
 }
 
 fn detect_remote_platform(server: &RemoteServerConfig) -> Result<RemotePlatform, String> {
@@ -493,12 +643,23 @@ fn command_exists(command: &str) -> bool {
 }
 
 fn cargo_subcommand_available(subcommand: &str) -> bool {
+    let standalone = format!("cargo-{subcommand}");
+    if command_exists(&standalone) {
+        return true;
+    }
+
     Command::new("cargo")
         .arg(subcommand)
-        .arg("--version")
+        .arg("--help")
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+        || Command::new("cargo")
+            .arg(subcommand)
+            .arg("-h")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
 }
 
 fn install_sshpass_sync() -> Result<(), String> {
@@ -552,12 +713,15 @@ fn install_sshpass_sync() -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_linux_build_dependencies_available() -> Result<(), String> {
+fn ensure_linux_build_dependencies_available(
+    app: &AppHandle,
+    server: &RemoteServerConfig,
+) -> Result<(), String> {
     if command_exists("cross") || (cargo_subcommand_available("zigbuild") && command_exists("zig")) {
         return Ok(());
     }
 
-    install_linux_build_dependencies_sync()?;
+    install_linux_build_dependencies_sync(app, server)?;
 
     if command_exists("cross") || (cargo_subcommand_available("zigbuild") && command_exists("zig")) {
         return Ok(());
@@ -566,12 +730,22 @@ fn ensure_linux_build_dependencies_available() -> Result<(), String> {
     Err("自动安装 Linux 构建依赖后仍未检测到可用的 cargo-zigbuild / zig。".to_string())
 }
 
-fn install_linux_build_dependencies_sync() -> Result<(), String> {
+fn install_linux_build_dependencies_sync(
+    app: &AppHandle,
+    server: &RemoteServerConfig,
+) -> Result<(), String> {
     if !command_exists("zig") {
-        install_zig_sync()?;
+        install_zig_sync(app, server)?;
     }
 
     if !cargo_subcommand_available("zigbuild") {
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            20,
+            Some("cargo install cargo-zigbuild --locked".to_string()),
+        );
         run_install_command(
             "cargo",
             &["install", "cargo-zigbuild", "--locked"],
@@ -582,13 +756,20 @@ fn install_linux_build_dependencies_sync() -> Result<(), String> {
     Ok(())
 }
 
-fn install_zig_sync() -> Result<(), String> {
+fn install_zig_sync(app: &AppHandle, server: &RemoteServerConfig) -> Result<(), String> {
     if command_exists("zig") {
         return Ok(());
     }
 
     #[cfg(target_os = "macos")]
     {
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            16,
+            Some("brew install zig".to_string()),
+        );
         ensure_command_available(
             "brew",
             "未检测到 Homebrew，请先安装 brew 后再自动安装 Zig。",
@@ -598,6 +779,13 @@ fn install_zig_sync() -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        emit_remote_deploy_progress(
+            app,
+            server,
+            "preparingBuilder",
+            16,
+            Some("winget install --id zig.zig -e --silent".to_string()),
+        );
         ensure_command_available(
             "winget",
             "当前平台暂未内置一键安装 cargo-zigbuild / Zig，请先手动安装。",
@@ -612,15 +800,43 @@ fn install_zig_sync() -> Result<(), String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         if command_exists("apt-get") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                16,
+                Some("sudo apt-get update && sudo apt-get install -y zig".to_string()),
+            );
             run_shell_install_command(
                 "sudo apt-get update && sudo apt-get install -y zig",
                 "通过 apt-get 安装 Zig 失败",
             )?;
         } else if command_exists("dnf") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                16,
+                Some("sudo dnf install -y zig".to_string()),
+            );
             run_shell_install_command("sudo dnf install -y zig", "通过 dnf 安装 Zig 失败")?;
         } else if command_exists("yum") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                16,
+                Some("sudo yum install -y zig".to_string()),
+            );
             run_shell_install_command("sudo yum install -y zig", "通过 yum 安装 Zig 失败")?;
         } else if command_exists("pacman") {
+            emit_remote_deploy_progress(
+                app,
+                server,
+                "preparingBuilder",
+                16,
+                Some("sudo pacman -Sy --noconfirm zig".to_string()),
+            );
             run_shell_install_command(
                 "sudo pacman -Sy --noconfirm zig",
                 "通过 pacman 安装 Zig 失败",
@@ -773,9 +989,19 @@ fn run_ssh(server: &RemoteServerConfig, script: &str) -> Result<String, String> 
         .output()
         .map_err(|error| format!("执行 ssh 命令失败: {error}"))?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Err(if !stderr.is_empty() {
+        let stderr = summarize_ssh_output(&output.stderr);
+        let stdout = summarize_ssh_output(&output.stdout);
+        return Err(if is_ssh_auth_failure(&stderr) || is_ssh_auth_failure(&stdout) {
+            format!(
+                "SSH 登录失败，请检查远程服务器的用户名、认证方式与密码/私钥是否正确。当前目标: {}",
+                remote_target(server)
+            )
+        } else if is_ssh_connection_closed(&stderr) || is_ssh_connection_closed(&stdout) {
+            format!(
+                "SSH 连接被远程服务器主动关闭，请检查 sshd 是否允许当前用户与认证方式。当前目标: {}",
+                remote_target(server)
+            )
+        } else if !stderr.is_empty() {
             format!("ssh 命令返回非零状态: {stderr}")
         } else if !stdout.is_empty() {
             format!("ssh 命令返回非零状态: {stdout}")
@@ -798,9 +1024,19 @@ fn run_scp(server: &RemoteServerConfig, local_path: &Path, remote_path: &str) ->
         .output()
         .map_err(|error| format!("执行 scp 命令失败: {error}"))?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Err(if !stderr.is_empty() {
+        let stderr = summarize_ssh_output(&output.stderr);
+        let stdout = summarize_ssh_output(&output.stdout);
+        return Err(if is_ssh_auth_failure(&stderr) || is_ssh_auth_failure(&stdout) {
+            format!(
+                "SSH 登录失败，请检查远程服务器的用户名、认证方式与密码/私钥是否正确。当前目标: {}",
+                remote_target(server)
+            )
+        } else if is_ssh_connection_closed(&stderr) || is_ssh_connection_closed(&stdout) {
+            format!(
+                "SSH 连接被远程服务器主动关闭，请检查 sshd 是否允许当前用户与认证方式。当前目标: {}",
+                remote_target(server)
+            )
+        } else if !stderr.is_empty() {
             format!("scp 命令返回非零状态: {stderr}")
         } else if !stdout.is_empty() {
             format!("scp 命令返回非零状态: {stdout}")
@@ -826,8 +1062,9 @@ fn append_ssh_common_args(
     match server.auth_mode {
         RemoteAuthMode::Password => {
             command.arg("-o").arg("BatchMode=no");
-            command.arg("-o").arg("PreferredAuthentications=password");
+            command.arg("-o").arg("PreferredAuthentications=password,keyboard-interactive");
             command.arg("-o").arg("PubkeyAuthentication=no");
+            command.arg("-o").arg("NumberOfPasswordPrompts=1");
         }
         _ => {
             command.arg("-o").arg("BatchMode=yes");
@@ -935,13 +1172,17 @@ impl PreparedAuth {
     }
 
     fn new_command(&self, program: &str) -> Command {
-        if let Some(password) = self.password.as_deref() {
+        let mut command = if let Some(password) = self.password.as_deref() {
             let mut command = Command::new("sshpass");
             command.arg("-p").arg(password).arg(program);
             command
         } else {
             Command::new(program)
-        }
+        };
+        command.env("SSH_ASKPASS_REQUIRE", "never");
+        command.env_remove("SSH_ASKPASS");
+        command.env_remove("DISPLAY");
+        command
     }
 }
 
@@ -951,4 +1192,35 @@ impl Drop for PreparedAuth {
             let _ = fs::remove_file(path);
         }
     }
+}
+
+fn summarize_ssh_output(output: &[u8]) -> String {
+    let normalized = String::from_utf8_lossy(output).replace('\r', "\n");
+    let filtered = normalized
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with("** WARNING: connection is not using a post-quantum"))
+        .filter(|line| !line.starts_with("** This session may be vulnerable"))
+        .filter(|line| !line.starts_with("** The server may need to be upgraded"))
+        .filter(|line| !line.contains("https://openssh.com/pq.html"))
+        .filter(|line| !line.starts_with("ssh_askpass:"))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    summarize_command_output(filtered.join("\n").as_bytes())
+}
+
+fn is_ssh_auth_failure(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    normalized.contains("permission denied")
+        || normalized.contains("please try again")
+        || normalized.contains("publickey,password")
+        || normalized.contains("publickey,gssapi-keyex,gssapi-with-mic,password")
+}
+
+fn is_ssh_connection_closed(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    normalized.contains("connection closed by")
+        || normalized.contains("connection reset by")
+        || normalized.contains("kex_exchange_identification")
 }

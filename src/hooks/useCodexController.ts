@@ -19,6 +19,7 @@ import type {
   InstalledEditorApp,
   Notice,
   PendingUpdateInfo,
+  RemoteDeployProgress,
   RemoteProxyStatus,
   RemoteServerConfig,
   StartCloudflaredTunnelInput,
@@ -144,6 +145,7 @@ export function useCodexController() {
   const [cloudflaredStatus, setCloudflaredStatus] = useState<CloudflaredStatus>(DEFAULT_CLOUDFLARED_STATUS);
   const [remoteProxyStatusesRaw, setRemoteProxyStatusesRaw] = useState<Record<string, RemoteProxyStatus>>({});
   const [remoteProxyLogs, setRemoteProxyLogs] = useState<Record<string, string>>({});
+  const [remoteDeployProgress, setRemoteDeployProgress] = useState<RemoteDeployProgress | null>(null);
   const [startingApiProxy, setStartingApiProxy] = useState(false);
   const [stoppingApiProxy, setStoppingApiProxy] = useState(false);
   const [refreshingApiProxyKey, setRefreshingApiProxyKey] = useState(false);
@@ -678,6 +680,32 @@ export function useCodexController() {
   }, [checkForAppUpdate]);
 
   useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+
+    void listen<RemoteDeployProgress>("remote-deploy-progress", (event) => {
+      if (!disposed) {
+        setRemoteDeployProgress(event.payload);
+      }
+    })
+      .then((fn) => {
+        if (disposed) {
+          void fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        void unlisten();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!addFlow) {
       return;
     }
@@ -987,7 +1015,18 @@ export function useCodexController() {
       return;
     }
 
+    setRemoteDeployProgress({
+      serverId: server.id,
+      label: server.label,
+      stage: "validating",
+      progress: 6,
+      detail: null,
+    });
+
     if (!(await ensureRemoteLocalDependency(server))) {
+      setRemoteDeployProgress((current) =>
+        current?.serverId === server.id ? null : current,
+      );
       return;
     }
 
@@ -1013,6 +1052,9 @@ export function useCodexController() {
         message: copy.notices.remoteProxyDeployFailed(server.label, localizeError(String(error))),
       });
     } finally {
+      setRemoteDeployProgress((current) =>
+        current?.serverId === server.id ? null : current,
+      );
       setDeployingRemoteProxyId(null);
     }
   }, [copy.notices, deployingRemoteProxyId, ensureRemoteLocalDependency, localizeError]);
@@ -1357,6 +1399,7 @@ export function useCodexController() {
     cloudflaredStatus,
     remoteProxyStatuses,
     remoteProxyLogs,
+    remoteDeployProgress,
     startingApiProxy,
     stoppingApiProxy,
     refreshingApiProxyKey,

@@ -110,6 +110,26 @@ export type RemoteProxyStatus = {
   lastError: string | null;
 };
 
+export type RemoteDeployStage =
+  | "validating"
+  | "detectingPlatform"
+  | "preparingBuilder"
+  | "buildingBinary"
+  | "preparingFiles"
+  | "uploadingBinary"
+  | "uploadingAccounts"
+  | "uploadingService"
+  | "installingService"
+  | "verifying";
+
+export type RemoteDeployProgress = {
+  serverId: string;
+  label: string;
+  stage: RemoteDeployStage;
+  progress: number;
+  detail: string | null;
+};
+
 export type CloudflaredTunnelMode = "quick" | "named";
 
 export type CloudflaredStatus = {

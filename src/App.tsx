@@ -9,6 +9,7 @@ import { AppTopBar } from "./components/AppTopBar";
 import { BottomDock } from "./components/BottomDock";
 import { MetaStrip } from "./components/MetaStrip";
 import { NoticeBanner } from "./components/NoticeBanner";
+import { RemoteDeployProgressToast } from "./components/RemoteDeployProgressToast";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useCodexController } from "./hooks/useCodexController";
@@ -43,6 +44,7 @@ function App() {
     cloudflaredStatus,
     remoteProxyStatuses,
     remoteProxyLogs,
+    remoteDeployProgress,
     startingApiProxy,
     stoppingApiProxy,
     refreshingApiProxyKey,
@@ -142,6 +144,7 @@ function App() {
         />
 
         <NoticeBanner notice={notice} />
+        <RemoteDeployProgressToast progress={remoteDeployProgress} />
         <UpdateBanner
           open={updateDialogOpen}
           pendingUpdate={pendingUpdate}

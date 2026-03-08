@@ -197,6 +197,17 @@ export type MessageCatalog = {
     remoteReadingLogs: string;
     remoteLastErrorLabel: string;
     remoteStatusUnknown: string;
+    remoteDeployProgressTitle: (label: string) => string;
+    remoteDeployStageValidating: string;
+    remoteDeployStageDetectingPlatform: string;
+    remoteDeployStagePreparingBuilder: string;
+    remoteDeployStageBuildingBinary: string;
+    remoteDeployStagePreparingFiles: string;
+    remoteDeployStageUploadingBinary: string;
+    remoteDeployStageUploadingAccounts: string;
+    remoteDeployStageUploadingService: string;
+    remoteDeployStageInstallingService: string;
+    remoteDeployStageVerifying: string;
     cloudflaredKicker: string;
     cloudflaredTitle: string;
     cloudflaredDescription: string;
@@ -416,7 +427,11 @@ function compileLocale(raw: RawMessageCatalog): MessageCatalog {
     accountCard: raw.accountCard,
     accountsGrid: raw.accountsGrid,
     bottomDock: raw.bottomDock,
-    apiProxy: raw.apiProxy,
+    apiProxy: {
+      ...raw.apiProxy,
+      remoteDeployProgressTitle: (label) =>
+        fillTemplate(raw.apiProxy.remoteDeployProgressTitle, { label }),
+    },
     settings: raw.settings,
     editorPicker: raw.editorPicker,
     editorAppLabels: raw.editorAppLabels,

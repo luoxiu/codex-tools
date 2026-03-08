@@ -18,13 +18,13 @@
 ## 编译
 
 ```bash
-cargo build --manifest-path src-tauri/Cargo.toml --bin codex-tools-proxyd
+cargo build --manifest-path src-tauri/proxyd/Cargo.toml
 ```
 
 ## 启动
 
 ```bash
-./src-tauri/target/debug/codex-tools-proxyd serve \
+./src-tauri/proxyd/target/debug/codex-tools-proxyd serve \
   --data-dir ~/.codex-tools-proxyd \
   --host 0.0.0.0 \
   --port 8787

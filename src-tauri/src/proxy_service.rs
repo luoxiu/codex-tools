@@ -25,10 +25,13 @@ use axum::Router;
 use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
-use tauri::AppHandle;
-use tauri::Manager;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+
+#[cfg(feature = "desktop")]
+use tauri::AppHandle;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 use crate::auth::current_auth_account_id;
 use crate::auth::extract_auth;
@@ -40,6 +43,7 @@ use crate::models::UsageSnapshot;
 use crate::models::UsageWindow;
 use crate::state::ApiProxyRuntimeHandle;
 use crate::state::ApiProxyRuntimeSnapshot;
+#[cfg(feature = "desktop")]
 use crate::state::AppState;
 use crate::store::account_store_path_from_data_dir;
 use crate::store::load_store_from_path;
@@ -147,6 +151,7 @@ pub(crate) fn new_proxy_storage_context(
     }
 }
 
+#[cfg(feature = "desktop")]
 fn app_proxy_storage_context(
     app: &AppHandle,
     state: &AppState,
@@ -158,6 +163,7 @@ fn app_proxy_storage_context(
     ))
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) async fn get_api_proxy_status_internal(
     app: &AppHandle,
     state: &AppState,
@@ -181,6 +187,7 @@ pub(crate) async fn get_api_proxy_status_with_runtime(
     }
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) async fn start_api_proxy_internal(
     app: &AppHandle,
     state: &AppState,
@@ -282,6 +289,7 @@ pub(crate) async fn start_api_proxy_with_runtime(
     Ok(status)
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) async fn stop_api_proxy_internal(
     app: &AppHandle,
     state: &AppState,
@@ -315,6 +323,7 @@ pub(crate) async fn stop_api_proxy_with_runtime(
     ))
 }
 
+#[cfg(feature = "desktop")]
 pub(crate) async fn refresh_api_proxy_key_internal(
     app: &AppHandle,
     state: &AppState,
@@ -1580,6 +1589,7 @@ fn api_proxy_key_path(storage: &ProxyStorageContext) -> Result<PathBuf, String> 
     Ok(storage.data_dir.join("api-proxy.key"))
 }
 
+#[cfg(feature = "desktop")]
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()

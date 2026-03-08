@@ -1611,6 +1611,26 @@ const REPLACEMENTS: PhraseReplacement[] = [
     ),
   },
   {
+    source: "SSH 登录失败，请检查远程服务器的用户名、认证方式与密码/私钥是否正确。当前目标: ",
+    target: phrases(
+      "SSH 登录失败，请检查远程服务器的用户名、认证方式与密码/私钥是否正确。当前目标: ",
+      "SSH sign-in failed. Check whether the remote username, auth method, and password/private key are correct. Target: ",
+      "SSH ログインに失敗しました。リモートのユーザー名、認証方式、パスワード/秘密鍵が正しいか確認してください。対象: ",
+      "SSH 로그인에 실패했습니다. 원격 사용자 이름, 인증 방식, 비밀번호/개인 키가 올바른지 확인하세요. 대상: ",
+      "Не удалось войти по SSH. Проверьте имя пользователя, способ аутентификации и пароль/закрытый ключ. Цель: "
+    ),
+  },
+  {
+    source: "SSH 连接被远程服务器主动关闭，请检查 sshd 是否允许当前用户与认证方式。当前目标: ",
+    target: phrases(
+      "SSH 连接被远程服务器主动关闭，请检查 sshd 是否允许当前用户与认证方式。当前目标: ",
+      "The SSH connection was closed by the remote server. Check whether sshd allows the current user and auth method. Target: ",
+      "SSH 接続がリモートサーバーによって閉じられました。sshd が現在のユーザーと認証方式を許可しているか確認してください。対象: ",
+      "SSH 연결이 원격 서버에 의해 종료되었습니다. sshd 가 현재 사용자와 인증 방식을 허용하는지 확인하세요. 대상: ",
+      "SSH-соединение было принудительно закрыто удаленным сервером. Проверьте, разрешает ли sshd текущего пользователя и способ аутентификации. Цель: "
+    ),
+  },
+  {
     source: "添加 Rust 目标失败",
     target: phrases(
       "添加 Rust 目标失败",
