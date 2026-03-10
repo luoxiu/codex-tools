@@ -111,6 +111,29 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const isMac =
+      typeof navigator !== "undefined" &&
+      /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (key !== "r") {
+        return;
+      }
+      const isTrigger = isMac ? event.metaKey : event.ctrlKey;
+      if (!isTrigger) {
+        return;
+      }
+      event.preventDefault();
+      void refreshUsage(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [refreshUsage]);
+
   return (
     <div className="shell">
       <div className="ambient" />
