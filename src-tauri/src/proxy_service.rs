@@ -138,7 +138,6 @@ struct SseEvent {
     data: String,
 }
 
-#[derive(Default)]
 struct ChatStreamState {
     response_id: String,
     created_at: i64,
@@ -146,6 +145,20 @@ struct ChatStreamState {
     function_call_index: i64,
     has_received_arguments_delta: bool,
     has_tool_call_announced: bool,
+}
+
+impl Default for ChatStreamState {
+    fn default() -> Self {
+        Self {
+            response_id: String::new(),
+            created_at: 0,
+            model: String::new(),
+            // OpenAI tool call chunk indices are zero-based.
+            function_call_index: -1,
+            has_received_arguments_delta: false,
+            has_tool_call_announced: false,
+        }
+    }
 }
 
 pub(crate) fn new_proxy_storage_context(
@@ -2575,6 +2588,9 @@ mod tests {
     use super::resolve_proxy_request_body_limit_bytes_from_mib_value;
     use super::rewrite_response_models_for_client;
     use super::rewrite_sse_event_data_models_for_client;
+    use super::translate_sse_event_to_chat_chunk;
+    use super::ChatStreamState;
+    use super::SseEvent;
     use super::DEFAULT_PROXY_REQUEST_BODY_LIMIT_BYTES;
     use serde_json::json;
 
@@ -2845,6 +2861,80 @@ data: {"type":"response.completed","response":{"id":"resp_123","created_at":1,"m
                 .and_then(|value| value.get("model"))
                 .and_then(|value| value.as_str()),
             Some("gpt-5.4")
+        );
+    }
+
+    #[test]
+    fn streaming_completed_without_tool_calls_finishes_with_stop() {
+        let mut state = ChatStreamState::default();
+        let created = SseEvent {
+            event: Some("response.created".to_string()),
+            data: json!({
+                "type": "response.created",
+                "response": {
+                    "id": "resp_123",
+                    "created_at": 1,
+                    "model": "gpt-5"
+                }
+            })
+            .to_string(),
+        };
+        let completed = SseEvent {
+            event: Some("response.completed".to_string()),
+            data: json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp_123",
+                    "created_at": 1,
+                    "model": "gpt-5",
+                    "status": "completed"
+                }
+            })
+            .to_string(),
+        };
+
+        assert!(translate_sse_event_to_chat_chunk(&created, &mut state).is_empty());
+
+        let chunks = translate_sse_event_to_chat_chunk(&completed, &mut state);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(
+            chunks[0]
+                .get("choices")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("finish_reason"))
+                .and_then(|value| value.as_str()),
+            Some("stop")
+        );
+    }
+
+    #[test]
+    fn streaming_first_tool_call_uses_zero_based_index() {
+        let mut state = ChatStreamState::default();
+        let added = SseEvent {
+            event: Some("response.output_item.added".to_string()),
+            data: json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_123",
+                    "name": "lookup_weather"
+                }
+            })
+            .to_string(),
+        };
+
+        let chunks = translate_sse_event_to_chat_chunk(&added, &mut state);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(
+            chunks[0]
+                .get("choices")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("delta"))
+                .and_then(|value| value.get("tool_calls"))
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("index"))
+                .and_then(|value| value.as_i64()),
+            Some(0)
         );
     }
 
