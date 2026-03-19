@@ -4,7 +4,7 @@
   grid-template-columns: repeat(auto-fill, 356px);
   grid-auto-rows: 312px;
   gap: 18px;
-  justify-content: start;
+  justify-content: center;
   align-content: start;
   min-height: 0;
   overflow: auto;
