@@ -25,6 +25,20 @@ use crate::utils::try_set_private_permissions;
 
 const REMOTE_BINARY_NAME: &str = "codex-tools-proxyd";
 const REMOTE_DEPLOY_PROGRESS_EVENT: &str = "remote-deploy-progress";
+const PROXYD_BUNDLED_SOURCE_ROOT: &str = "gen/remote-build";
+const PROXYD_BUILD_SOURCE_FILES: &[&str] = &[
+    "proxyd/Cargo.toml",
+    "proxyd/Cargo.lock",
+    "proxyd/src/main.rs",
+    "src/auth.rs",
+    "src/models.rs",
+    "src/proxy_daemon.rs",
+    "src/proxy_service.rs",
+    "src/state.rs",
+    "src/store.rs",
+    "src/usage.rs",
+    "src/utils.rs",
+];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -479,7 +493,7 @@ fn build_linux_binary_for_server(
         Some("uname -s && uname -m".to_string()),
     );
     let platform = detect_remote_platform(server)?;
-    let workspace_manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_manifest_dir = prepare_proxyd_build_source(app)?;
     let manifest_dir = workspace_manifest_dir.join("proxyd");
     let manifest_path = manifest_dir.join("Cargo.toml");
     let target_dir = proxyd_build_target_dir()?;
@@ -655,6 +669,90 @@ fn proxyd_build_target_dir() -> Result<PathBuf, String> {
         )
     })?;
     Ok(target_dir)
+}
+
+fn prepare_proxyd_build_source(app: &AppHandle) -> Result<PathBuf, String> {
+    let source_root = resolve_proxyd_source_root(app)?;
+    let build_root = proxyd_build_source_cache_dir()?;
+
+    if build_root.exists() {
+        fs::remove_dir_all(&build_root).map_err(|error| {
+            format!(
+                "清理 proxyd 构建源码缓存目录失败 {}: {error}",
+                build_root.display()
+            )
+        })?;
+    }
+
+    for relative_path in PROXYD_BUILD_SOURCE_FILES {
+        copy_proxyd_build_source_file(&source_root, &build_root, relative_path)?;
+    }
+
+    Ok(build_root)
+}
+
+fn resolve_proxyd_source_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled_root = resource_dir.join(PROXYD_BUNDLED_SOURCE_ROOT);
+        if proxyd_source_root_available(&bundled_root) {
+            return Ok(bundled_root);
+        }
+    }
+
+    let development_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if proxyd_source_root_available(&development_root) {
+        return Ok(development_root);
+    }
+
+    Err(
+        "未找到内置 proxyd 构建源码。请重新安装包含 remote-build resources 的客户端，或在源码仓库内运行开发版客户端。"
+            .to_string(),
+    )
+}
+
+fn proxyd_source_root_available(root: &Path) -> bool {
+    PROXYD_BUILD_SOURCE_FILES
+        .iter()
+        .all(|relative_path| root.join(relative_path).is_file())
+}
+
+fn proxyd_build_source_cache_dir() -> Result<PathBuf, String> {
+    let base = dirs::cache_dir().unwrap_or_else(env::temp_dir);
+    let build_root = base.join("codex-tools").join("proxyd-build-src");
+    if let Some(parent) = build_root.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建 proxyd 构建源码缓存父目录失败 {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+    Ok(build_root)
+}
+
+fn copy_proxyd_build_source_file(
+    source_root: &Path,
+    destination_root: &Path,
+    relative_path: &str,
+) -> Result<(), String> {
+    let source_path = source_root.join(relative_path);
+    let destination_path = destination_root.join(relative_path);
+    let parent = destination_path.parent().ok_or_else(|| {
+        format!(
+            "proxyd 构建源码目标路径缺少父目录 {}",
+            destination_path.display()
+        )
+    })?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("创建 proxyd 构建源码目录失败 {}: {error}", parent.display()))?;
+    fs::copy(&source_path, &destination_path).map_err(|error| {
+        format!(
+            "复制 proxyd 构建源码失败 {} -> {}: {error}",
+            source_path.display(),
+            destination_path.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn emit_remote_deploy_progress(

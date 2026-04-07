@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Tools",
-  "version": "1.6.4",
+  "version": "1.7.1",
   "identifier": "com.carry.codex-tools",
   "build": {
     "frontendDist": "../dist",
@@ -35,6 +35,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "gen/remote-build"
     ]
   },
   "plugins": {

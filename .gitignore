@@ -27,3 +27,4 @@ push.sh
 
 release/
 debug/
+src-tauri/gen/
